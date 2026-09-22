@@ -36,6 +36,17 @@ export class AdminAuthService {
     }
   }
 
+  async anonymousLogin(): Promise<User> {
+    try {
+      const { signInAnonymously } = await import('firebase/auth');
+      const userCredential = await signInAnonymously(this.firebaseService.auth);
+      return userCredential.user;
+    } catch (error) {
+      console.error('Anonymous Login Error:', error);
+      throw error;
+    }
+  }
+
   async logout(): Promise<void> {
     await signOut(this.firebaseService.auth);
     this.router.navigate(['/admin/login']);

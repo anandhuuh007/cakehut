@@ -1,6 +1,8 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
+import { AdminDbService } from '../../shared/services/admin-db.service';
+import { ChangeDetectorRef } from '@angular/core';
 
 interface OrderItem {
   orderId: string;
@@ -29,21 +31,41 @@ interface OrderItem {
   styleUrl: './orders.css',
 })
 export class Orders implements OnInit {
-  orders: OrderItem[] = [];
+  orders: any[] = [];
+  isLoading = true;
+
+  constructor(
+    private dbService: AdminDbService,
+    private cdr: ChangeDetectorRef
+  ) {}
 
   ngOnInit() {
     this.loadOrders();
   }
 
-  loadOrders() {
-    const saved = localStorage.getItem('sweet_layers_orders');
-    if (saved) {
+  async loadOrders() {
+    this.isLoading = true;
+    const savedIds = localStorage.getItem('my_order_ids');
+    if (savedIds) {
       try {
-        this.orders = JSON.parse(saved);
+        const ids: string[] = JSON.parse(savedIds);
+        const fetchedOrders: any[] = [];
+        for (const id of ids) {
+          const order = await this.dbService.getOrder(id);
+          if (order) {
+             order.status = order.orderStatus || order.status || 'Baking';
+             fetchedOrders.push(order);
+          }
+        }
+        fetchedOrders.sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+        this.orders = fetchedOrders;
       } catch (e) {
+        console.error('Failed to load orders from Firestore', e);
         this.orders = [];
       }
     }
+    this.isLoading = false;
+    this.cdr.detectChanges();
   }
 
   getStatusClass(status: string): string {
@@ -60,7 +82,7 @@ export class Orders implements OnInit {
   }
 
   clearOrders() {
-    localStorage.removeItem('sweet_layers_orders');
+    localStorage.removeItem('my_order_ids');
     this.orders = [];
   }
 }

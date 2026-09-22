@@ -17,9 +17,15 @@
       </button>
     </div>
 
+    <!-- Loading State -->
+    <div *ngIf="isLoading" class="text-center py-20 bg-white rounded-3xl border border-zinc-200/50 shadow-sm px-6 max-w-md mx-auto">
+      <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <p class="mt-4 text-zinc-500 font-medium">Loading orders...</p>
+    </div>
+
     <!-- Empty State -->
     <div 
-      *ngIf="orders.length === 0"
+      *ngIf="!isLoading && orders.length === 0"
       class="text-center py-20 bg-white rounded-3xl border border-zinc-200/50 shadow-sm px-6 max-w-md mx-auto"
     >
       <div class="inline-flex p-4 rounded-full bg-zinc-50 border border-zinc-100 text-zinc-400 mb-6">

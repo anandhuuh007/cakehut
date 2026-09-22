@@ -30,13 +30,21 @@ export interface ProductData {
 
 export interface OrderData {
   id?: string;
+  orderId?: string;
   customerName: string;
   customerPhone: string;
   customerAddress: string;
-  totalAmount: number;
-  paymentStatus: string;
-  orderStatus: string;
-  items: any[];
+  customerPincode?: string;
+  totalAmount?: number;
+  totalPrice?: number;
+  paymentStatus?: string;
+  orderStatus?: string;
+  status?: string;
+  product?: any;
+  weight?: string;
+  quantity?: number;
+  date?: string;
+  items?: any[];
   createdAt?: any;
 }
 
@@ -49,7 +57,7 @@ export class AdminDbService {
   // --- Products ---
 
   async getProducts(): Promise<ProductData[]> {
-    const col = collection(this.firebaseService.firestore, 'products');
+    const col = collection(this.firebaseService.firestore, 'cakes');
     try {
       const q = query(col, orderBy('createdAt', 'desc'));
       const querySnapshot = await getDocs(q);
@@ -62,7 +70,7 @@ export class AdminDbService {
   }
 
   async getProduct(id: string): Promise<ProductData | null> {
-    const docRef = doc(this.firebaseService.firestore, 'products', id);
+    const docRef = doc(this.firebaseService.firestore, 'cakes', id);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists()) {
       return { id: docSnap.id, ...docSnap.data() } as ProductData;
@@ -71,7 +79,7 @@ export class AdminDbService {
   }
 
   async addProduct(product: Omit<ProductData, 'id' | 'createdAt'>): Promise<string> {
-    const docRef = await addDoc(collection(this.firebaseService.firestore, 'products'), {
+    const docRef = await addDoc(collection(this.firebaseService.firestore, 'cakes'), {
       ...product,
       createdAt: serverTimestamp()
     });
@@ -79,12 +87,12 @@ export class AdminDbService {
   }
 
   async updateProduct(id: string, product: Partial<ProductData>): Promise<void> {
-    const docRef = doc(this.firebaseService.firestore, 'products', id);
+    const docRef = doc(this.firebaseService.firestore, 'cakes', id);
     await updateDoc(docRef, product as DocumentData);
   }
 
   async deleteProduct(id: string): Promise<void> {
-    const docRef = doc(this.firebaseService.firestore, 'products', id);
+    const docRef = doc(this.firebaseService.firestore, 'cakes', id);
     await deleteDoc(docRef);
   }
 
@@ -98,6 +106,23 @@ export class AdminDbService {
 
   async updateOrderStatus(id: string, status: string): Promise<void> {
     const docRef = doc(this.firebaseService.firestore, 'orders', id);
-    await updateDoc(docRef, { orderStatus: status });
+    await updateDoc(docRef, { orderStatus: status, status: status });
+  }
+
+  async addOrder(order: Omit<OrderData, 'id' | 'createdAt'>): Promise<string> {
+    const docRef = await addDoc(collection(this.firebaseService.firestore, 'orders'), {
+      ...order,
+      createdAt: serverTimestamp()
+    });
+    return docRef.id;
+  }
+
+  async getOrder(id: string): Promise<OrderData | null> {
+    const docRef = doc(this.firebaseService.firestore, 'orders', id);
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      return { id: docSnap.id, ...docSnap.data() } as OrderData;
+    }
+    return null;
   }
 }

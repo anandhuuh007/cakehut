@@ -8,6 +8,7 @@ import { ChangeDetectorRef } from '@angular/core';
 import { Toast } from '../../shared/services/toast';
 import { Router } from '@angular/router';
 import { FirebaseService } from '../../shared/services/firebase.service';
+import { NgZone } from '@angular/core';
 
 @Component({
   selector: 'app-admin',
@@ -29,12 +30,18 @@ export class Admin implements OnInit, OnDestroy {
   
   // Dev Bypass for local layout testing
   devBypassCount = 0;
-  triggerBypass() {
+  async triggerBypass() {
     this.devBypassCount++;
     if (this.devBypassCount >= 3) {
-      this.isLoggedIn = true;
-      this.userEmail = 'dev-bypass@sweetlayers.com';
-      this.loadDashboardData();
+      try {
+        await this.adminAuthService.anonymousLogin();
+        // The auth state listener in ngOnInit will automatically handle the rest
+      } catch (error) {
+        console.warn('Anonymous login failed. Falling back to local bypass.', error);
+        this.isLoggedIn = true;
+        this.userEmail = 'dev-bypass@sweetlayers.com';
+        this.loadDashboardData();
+      }
     }
   }
   
@@ -75,22 +82,25 @@ export class Admin implements OnInit, OnDestroy {
     private cdr: ChangeDetectorRef,
     private toast: Toast,
     private firebaseService: FirebaseService,
-    private router: Router
+    private router: Router,
+    private ngZone: NgZone
   ) {}
 
   ngOnInit() {
     this.authLoading = true;
     this.authSubscription = this.adminAuthService.user$.subscribe((user) => {
-      this.authLoading = false;
-      if (user) {
-        this.isLoggedIn = true;
-        this.userEmail = user.email || 'Admin';
-        this.loadDashboardData();
-      } else {
-        this.isLoggedIn = false;
-        this.userEmail = '';
-      }
-      this.cdr.detectChanges();
+      this.ngZone.run(() => {
+        this.authLoading = false;
+        if (user) {
+          this.isLoggedIn = true;
+          this.userEmail = user.email || 'Admin';
+          this.loadDashboardData();
+        } else {
+          this.isLoggedIn = false;
+          this.userEmail = '';
+        }
+        this.cdr.detectChanges();
+      });
     });
   }
 
@@ -206,10 +216,12 @@ export class Admin implements OnInit, OnDestroy {
     };
     this.weightInput = '';
     this.showProductModal = true;
+    this.cdr.detectChanges();
   }
 
   closeProductModal() {
     this.showProductModal = false;
+    this.cdr.detectChanges();
   }
 
   // File selected from local device
@@ -221,25 +233,12 @@ export class Admin implements OnInit, OnDestroy {
       this.cdr.detectChanges();
 
       try {
-        // Try uploading to Firebase Storage first
-        const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
-        const storageRef = ref(this.firebaseService.storage, `products/${Date.now()}_${file.name}`);
-        const snapshot = await uploadBytes(storageRef, file);
-        const downloadURL = await getDownloadURL(snapshot.ref);
-        
-        this.productForm.image = downloadURL;
+        const base64String = await this.compressImageToBase64(file);
+        this.productForm.image = base64String;
         this.toast.show('Image uploaded successfully!', 'success');
-      } catch (storageError) {
-        console.warn('Firebase Storage upload failed, falling back to base64 compression:', storageError);
-        // Fallback to base64 compression
-        try {
-          const base64String = await this.compressImageToBase64(file);
-          this.productForm.image = base64String;
-          this.toast.show('Image processed successfully (Base64)!', 'success');
-        } catch (compressError) {
-          console.error('Image compression failed:', compressError);
-          this.toast.show('Failed to process image. Please try again.', 'error');
-        }
+      } catch (compressError) {
+        console.error('Image compression failed:', compressError);
+        this.toast.show('Failed to process image. Please try again.', 'error');
       } finally {
         this.imageUploading = false;
         this.cdr.detectChanges();
@@ -249,38 +248,62 @@ export class Admin implements OnInit, OnDestroy {
 
   compressImageToBase64(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
+      // Safety timeout just in case it hangs
+      const timeout = setTimeout(() => reject(new Error('Image compression timed out')), 10000);
+
       const reader = new FileReader();
-      reader.readAsDataURL(file);
       reader.onload = (event) => {
         const img = new Image();
-        img.src = event.target?.result as string;
+        
         img.onload = () => {
-          const canvas = document.createElement('canvas');
-          const max_size = 600; // Resize to max 600px width/height
-          let width = img.width;
-          let height = img.height;
+          try {
+            const canvas = document.createElement('canvas');
+            const max_size = 600;
+            let width = img.width;
+            let height = img.height;
 
-          if (width > height) {
-            if (width > max_size) {
-              height *= max_size / width;
-              width = max_size;
+            if (width > height) {
+              if (width > max_size) {
+                height *= max_size / width;
+                width = max_size;
+              }
+            } else {
+              if (height > max_size) {
+                width *= max_size / height;
+                height = max_size;
+              }
             }
-          } else {
-            if (height > max_size) {
-              width *= max_size / height;
-              height = max_size;
-            }
+            
+            canvas.width = Math.max(1, width);
+            canvas.height = Math.max(1, height);
+            const ctx = canvas.getContext('2d');
+            if (!ctx) throw new Error('Could not get canvas context');
+            
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+            clearTimeout(timeout);
+            resolve(dataUrl);
+          } catch (e) {
+            clearTimeout(timeout);
+            reject(e);
           }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          ctx?.drawImage(img, 0, 0, width, height);
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.7); // 0.7 quality
-          resolve(dataUrl);
         };
-        img.onerror = (err) => reject(err);
+        
+        img.onerror = (err) => {
+          clearTimeout(timeout);
+          reject(err || new Error('Image failed to load'));
+        };
+
+        // Important: set src AFTER onload
+        img.src = event.target?.result as string;
       };
-      reader.onerror = (err) => reject(err);
+      
+      reader.onerror = (err) => {
+        clearTimeout(timeout);
+        reject(err || new Error('FileReader failed'));
+      };
+      
+      reader.readAsDataURL(file);
     });
   }
 
@@ -301,8 +324,8 @@ export class Admin implements OnInit, OnDestroy {
 
   // Save product
   async saveProduct() {
-    if (!this.productForm.name || !this.productForm.price) {
-      this.toast.show('Please fill in required fields (Name and Price).', 'error');
+    if (!this.productForm.name || !this.productForm.price || !this.productForm.image) {
+      this.toast.show('Please fill in all required fields, including the Cake Image.', 'error');
       return;
     }
 
@@ -318,12 +341,8 @@ export class Admin implements OnInit, OnDestroy {
       this.showProductModal = false;
       this.toast.show('Product saved successfully!', 'success');
       
-      if (isNewProduct) {
-        this.router.navigate(['/']);
-      } else {
-        await this.loadProducts();
-        this.calculateStats();
-      }
+      await this.loadProducts();
+      this.calculateStats();
     } catch (error) {
       console.error('Error saving product:', error);
       this.toast.show('Could not save product. Please try again.', 'error');

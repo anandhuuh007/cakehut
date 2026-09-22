@@ -21,7 +21,7 @@ export class ProductService {
     if (this.isInitialized) return;
     this.isInitialized = true;
 
-    const col = collection(this.firebaseService.firestore, 'products');
+    const col = collection(this.firebaseService.firestore, 'cakes');
     const orderedQuery = query(col, orderBy('createdAt', 'desc'));
 
     const emitProducts = (querySnapshot: { docs: { id: string; data: () => DocumentData }[] }) => {

@@ -4,6 +4,7 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { PRODUCTS, Product } from '../../shared/data/products';
 import { Toast } from '../../shared/services/toast';
+import { AdminDbService } from '../../shared/services/admin-db.service';
 
 @Component({
   selector: 'app-checkout',
@@ -27,23 +28,38 @@ export class Checkout implements OnInit {
   constructor(
     private route: ActivatedRoute,
     private router: Router,
-    private toast: Toast
+    private toast: Toast,
+    private dbService: AdminDbService
   ) {}
 
   ngOnInit() {
-    this.route.queryParams.subscribe(params => {
+    this.route.queryParams.subscribe(async params => {
       const productId = params['productId'];
       this.weight = params['weight'] || '1.0 kg';
       this.quantity = +params['quantity'] || 1;
       this.totalPrice = +params['price'] || 0;
 
       if (productId) {
-        this.product = PRODUCTS.find(p => p.id === productId);
+        const firestoreProduct = await this.dbService.getProduct(productId);
+        if (firestoreProduct) {
+          this.product = {
+            id: firestoreProduct.id ?? firestoreProduct.name,
+            name: firestoreProduct.name,
+            price: `$${firestoreProduct.price}`,
+            image: firestoreProduct.image,
+            description: firestoreProduct.description,
+            rating: 4.9,
+            reviewCount: 100,
+            priceNum: firestoreProduct.price
+          };
+        } else {
+          this.product = PRODUCTS.find(p => p.id === productId);
+        }
       }
     });
   }
 
-  onSubmit() {
+  async onSubmit() {
     if (!this.customerName.trim()) {
       this.toast.show('Please enter your name.', 'error');
       return;
@@ -61,31 +77,39 @@ export class Checkout implements OnInit {
       return;
     }
 
-    // Save order
-    const orders = JSON.parse(localStorage.getItem('sweet_layers_orders') || '[]');
     const newOrder = {
       orderId: 'SL-' + Math.floor(100000 + Math.random() * 900000),
       product: {
-        id: this.product?.id,
-        name: this.product?.name,
-        image: this.product?.image,
-        price: this.product?.price
+        id: this.product?.id || '',
+        name: this.product?.name || '',
+        image: this.product?.image || '',
+        price: this.product?.price || ''
       },
       weight: this.weight,
       quantity: this.quantity,
       totalPrice: this.totalPrice,
+      totalAmount: this.totalPrice,
       customerName: this.customerName,
       customerPhone: this.customerPhone,
       customerAddress: this.customerAddress,
       customerPincode: this.customerPincode,
       date: new Date().toISOString(),
-      status: 'Baking'
+      status: 'Baking',
+      orderStatus: 'Baking',
+      paymentStatus: 'Pending'
     };
 
-    orders.unshift(newOrder); // Prepend to show newest orders first
-    localStorage.setItem('sweet_layers_orders', JSON.stringify(orders));
+    try {
+      const docId = await this.dbService.addOrder(newOrder);
+      const myOrderIds = JSON.parse(localStorage.getItem('my_order_ids') || '[]');
+      myOrderIds.unshift(docId);
+      localStorage.setItem('my_order_ids', JSON.stringify(myOrderIds));
 
-    this.toast.show('Order Placed Successfully! Your cake is baking.', 'success');
-    this.router.navigate(['/orders']);
+      this.toast.show('Order Placed Successfully! Your cake is baking.', 'success');
+      this.router.navigate(['/orders']);
+    } catch (error) {
+      console.error('Error placing order:', error);
+      this.toast.show('Failed to place order. Please try again.', 'error');
+    }
   }
 }
